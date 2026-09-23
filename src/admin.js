@@ -111,7 +111,7 @@ async function guardarCatalogo(catalogo){
 }
 
 /* Guarda y refresca el sitio y la lista del panel de una sola vez. */
-async function aplicarCambios(catalogo, cerrarDespues = true){
+async function aplicarCambios(catalogo, cerrarDespues = false){
   const ok = await guardarCatalogo(catalogo);
   if(!ok) return false;
   if(typeof window.recargarSitio === 'function') window.recargarSitio();
@@ -343,7 +343,6 @@ btnGuardarFondo.addEventListener('click', async () => {
     aplicarFondo(fondoNuevo);
     fondoNuevo = '';
     campoFondoAdmin.value = '';
-    cerrarSesionAdmin();
   }
 });
 
@@ -431,7 +430,6 @@ function anadirCategoria(){
   dibujarCategorias([...seleccionadas, valor]);
 
   campoNuevaCat.value = '';
-  cerrarSesionAdmin();
 }
 
 /* Quita una categoría de la barra lateral y de todos los servicios
@@ -549,7 +547,7 @@ formAdmin.addEventListener('submit', async e => {
                        imagen: imagenActual, agotado: false });
   }
 
-  if(await aplicarCambios(catalogo, true)) limpiarFormulario();
+  if(await aplicarCambios(catalogo, false)) limpiarFormulario();
 });
 
 btnCancelForm.addEventListener('click', limpiarFormulario);
