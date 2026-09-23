@@ -221,10 +221,27 @@ function generarIndexPublicable(){
 })();
 <\/script>`;
 
-  const doc = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  /*
+   * El administrador está abierto cuando se pulsa este botón.
+   * Por eso NO se debe exportar document.documentElement.outerHTML
+   * directamente: hacerlo conservaría el modal con la clase "visible"
+   * y el index publicado aparecería con el menú de administrador abierto.
+   */
+  const html = document.documentElement.cloneNode(true);
+
+  const modalAdminExport = html.querySelector('#modalAdminFondo');
+  const modalPassExport  = html.querySelector('#modalPassFondo');
+
+  if(modalAdminExport) modalAdminExport.classList.remove('visible');
+  if(modalPassExport) {
+    modalPassExport.classList.remove('visible');
+    modalPassExport.hidden = true;
+  }
+
+  const doc = '<!DOCTYPE html>\n' + html.outerHTML;
   const salida = doc.replace(
     /<script\s+src=["']script\.js["']><\/script>/i,
-    bootstrap + '\\n<script src="script.js"></script>'
+    bootstrap + '\n<script src="script.js"></script>'
   );
 
   return salida;
@@ -246,9 +263,13 @@ function descargarIndexPublicable(){
 if(btnGuardarIndex){
   btnGuardarIndex.addEventListener('click', () => {
     try {
+      /* El index ya se genera sin el menú administrativo. */
       descargarIndexPublicable();
-      alert('Index guardado. Sube el archivo index.html descargado para que los cambios los vean todos.');
+
+      /* Guardar el index SIEMPRE termina la sesión administrativa. */
       cerrarSesionAdmin();
+
+      alert('Index guardado. Sube el archivo index.html descargado para que los cambios los vean todos.');
     } catch(e) {
       alert('No se pudo generar el index. Intenta nuevamente.');
     }
