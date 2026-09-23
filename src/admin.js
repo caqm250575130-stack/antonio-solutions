@@ -540,9 +540,6 @@ async function mover(id, direccion){
    5.5 PUBLICACIÓN: generar el index.html público
    ============================================================ */
 const btnExportarSitio = $('btnExportarSitio');
-const btnActualizarGitHub = $('btnActualizarGitHub');
-
-const CLAVE_GITHUB_CONFIG = 'solutions_github_config_v1';
 
 function escaparScriptJSON(obj){
   return JSON.stringify(obj).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
@@ -582,83 +579,6 @@ function descargarIndexPublicado(){
 }
 
 if(btnExportarSitio) btnExportarSitio.addEventListener('click', descargarIndexPublicado);
-
-/* ------------------------------------------------------------
-   ACTUALIZAR GITHUB
-   Publica directamente el index.html generado en un repositorio
-   mediante la API oficial de GitHub.
-   El token NO se guarda en localStorage.
-   ------------------------------------------------------------ */
-function leerConfigGitHub(){
-  try { return JSON.parse(localStorage.getItem(CLAVE_GITHUB_CONFIG)) || {}; }
-  catch(e){ return {}; }
-}
-
-function guardarConfigGitHub(config){
-  try { localStorage.setItem(CLAVE_GITHUB_CONFIG, JSON.stringify(config)); }
-  catch(e){}
-}
-
-function pedirDatoGitHub(mensaje, valorInicial = ''){
-  const valor = prompt(mensaje, valorInicial);
-  if(valor === null) return null;
-  return valor.trim();
-}
-
-async function actualizarGitHub(){
-  const config = leerConfigGitHub();
-  const token = pedirDatoGitHub(
-    'Pega tu token de GitHub (Fine-grained) con permiso Contents: Read and write.\n\nPor seguridad, el token no se guardará en este navegador.', ''
-  );
-  if(token === null) return;
-  if(!token){ alert('No se proporcionó el token de GitHub.'); return; }
-
-  const owner = pedirDatoGitHub('Usuario u organización de GitHub:', config.owner || '');
-  if(owner === null) return;
-  const repo = pedirDatoGitHub('Nombre del repositorio:', config.repo || '');
-  if(repo === null) return;
-  const branch = pedirDatoGitHub('Rama donde está el index.html:', config.branch || 'main');
-  if(branch === null) return;
-  if(!owner || !repo || !branch){ alert('Debes indicar usuario/organización, repositorio y rama.'); return; }
-
-  guardarConfigGitHub({owner, repo, branch});
-  const html = construirIndexPublicado();
-  const apiBase = 'https://api.github.com/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo) + '/contents/index.html';
-  const headers = {
-    'Accept':'application/vnd.github+json',
-    'Authorization':'Bearer ' + token,
-    'X-GitHub-Api-Version':'2022-11-28',
-    'Content-Type':'application/json'
-  };
-
-  try{
-    if(btnActualizarGitHub){ btnActualizarGitHub.disabled=true; btnActualizarGitHub.textContent='Actualizando GitHub...'; }
-    let sha=null;
-    const consulta=await fetch(apiBase+'?ref='+encodeURIComponent(branch),{method:'GET',headers});
-    if(consulta.ok){ const actual=await consulta.json(); sha=actual.sha||null; }
-    else if(consulta.status!==404){ throw new Error('GitHub respondió '+consulta.status+': '+await consulta.text()); }
-
-    const bytes=new TextEncoder().encode(html);
-    let binario='';
-    const bloque=0x8000;
-    for(let i=0;i<bytes.length;i+=bloque) binario+=String.fromCharCode(...bytes.subarray(i,i+bloque));
-
-    const cuerpo={message:'Actualizar catálogo desde el panel de administrador',content:btoa(binario),branch};
-    if(sha) cuerpo.sha=sha;
-    const subida=await fetch(apiBase,{method:'PUT',headers,body:JSON.stringify(cuerpo)});
-    const resultado=await subida.json().catch(()=>({}));
-    if(!subida.ok) throw new Error(resultado.message||('HTTP '+subida.status));
-
-    alert('¡GitHub actualizado correctamente!\n\nSe publicó el index.html con '+obtenerDatosPublicados().catalogo.length+' producto(s).\n\nGitHub Pages/Vercel puede tardar unos segundos en mostrar los cambios.');
-  }catch(error){
-    console.error('Error al actualizar GitHub:',error);
-    alert('No se pudo actualizar GitHub.\n\nRevisa que el token tenga permiso Contents: Read and write, que el repositorio exista y que la rama sea correcta.\n\nDetalle: '+error.message);
-  }finally{
-    if(btnActualizarGitHub){ btnActualizarGitHub.disabled=false; btnActualizarGitHub.textContent='Actualizar GitHub'; }
-  }
-}
-
-if(btnActualizarGitHub) btnActualizarGitHub.addEventListener('click', actualizarGitHub);
 
 /* ============================================================
    6. Abrir y cerrar el panel
