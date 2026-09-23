@@ -360,6 +360,13 @@
 
     <h3>Servicios existentes</h3>
     <div id="listaAdminServicios" class="lista-admin"></div>
+
+    <hr style="border-color:rgba(255,255,255,.15);margin:18px 0">
+    <h3>Publicar cambios</h3>
+    <p class="ayuda-admin">Cada vez que guardes un producto, se descarga automáticamente un <strong>index.html</strong> actualizado. Súbelo a GitHub y Vercel lo desplegará sin base de datos.</p>
+    <div class="modal-botones">
+      <button type="button" id="btnExportarSitio" class="btn-primario">Descargar index.html actualizado</button>
+    </div>
   </div>
 </div>
 
@@ -372,6 +379,10 @@
   </div>
   <p class="pista-bienvenida">Toca en cualquier lugar para continuar</p>
 </div>
+
+<!-- DATOS PUBLICADOS: admin.js reemplaza estos bloques al descargar index.html -->
+<script id="catalogoPublicado" type="application/json">null</script>
+<script id="datosPublicados" type="application/json">{"categorias":[],"categoriasOcultas":[],"fondo":""}</script>
 
 <script src="script.js"></script>
 <script src="admin.js"></script>
