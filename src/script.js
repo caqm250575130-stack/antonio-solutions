@@ -31,8 +31,15 @@ aplicarFondoGuardado();
    CATÁLOGO DE SERVICIOS
    ------------------------------------------------------------ */
 function leerCatalogoGuardado(){
-  try { return JSON.parse(localStorage.getItem(CLAVE_CATALOGO)); }
-  catch(e){ return null; }
+  try {
+    const local = JSON.parse(localStorage.getItem(CLAVE_CATALOGO));
+    if(local) return local;
+  } catch(e){}
+  try {
+    const bloque = document.getElementById('catalogoPublicado');
+    if(bloque && bloque.textContent.trim() && bloque.textContent.trim() !== 'null') return JSON.parse(bloque.textContent);
+  } catch(e){}
+  return null;
 }
 
 /* ------------------------------------------------------------

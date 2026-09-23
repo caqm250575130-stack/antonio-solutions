@@ -529,3 +529,7 @@ a{text-decoration:none;color:inherit}
   .capa-bienvenida.visible .texto-bienvenida{animation:none;opacity:1;transform:none}
   .capa-bienvenida.visible .lema-bienvenida{animation:none;opacity:1}
 }
+
+
+/* Estado de publicación en el panel de administrador */
+.lista-admin .acciones button { min-height: 34px; }

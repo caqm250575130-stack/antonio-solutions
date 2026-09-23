@@ -76,7 +76,8 @@ function catalogoDesdeHTML(){
       caracteristicas: [...art.querySelectorAll('.detalles li')].map(li => li.textContent.trim()),
       categorias     : (art.dataset.categoria || '').split(' ').filter(Boolean),
       imagen         : art.querySelector('.marco-imagen img')?.getAttribute('src') || '',
-      agotado        : art.classList.contains('agotado')
+      agotado        : art.classList.contains('agotado'),
+      publicado      : true
     };
   });
 }
@@ -445,7 +446,7 @@ formAdmin.addEventListener('submit', async e => {
     if(serv) Object.assign(serv, { titulo, precio, caracteristicas, categorias, imagen: imagenActual });
   } else {
     catalogo.unshift({ id: nuevoId(), titulo, precio, caracteristicas, categorias,
-                       imagen: imagenActual, agotado: false });
+                       imagen: imagenActual, agotado: false, publicado: false });
   }
 
   if(await aplicarCambios(catalogo)) limpiarFormulario();
@@ -484,6 +485,12 @@ function dibujarListaAdmin(){
     acciones.className = 'acciones';
     acciones.append(
       crearBoton('Editar', () => cargarEnFormulario(s)),
+      crearBoton(s.publicado === false ? 'Publicar' : 'Publicado ✓', async () => {
+        const cat = obtenerCatalogo();
+        const serv = cat.find(x => x.id === s.id);
+        if(serv) serv.publicado = serv.publicado === false;
+        await aplicarCambios(cat);
+      }),
       crearBoton(s.agotado ? 'Disponible' : 'No disponible', async () => {
         const cat = obtenerCatalogo();
         const serv = cat.find(x => x.id === s.id);
@@ -528,6 +535,50 @@ async function mover(id, direccion){
   [cat[i], cat[destino]] = [cat[destino], cat[i]];
   await aplicarCambios(cat);
 }
+
+/* ============================================================
+   5.5 PUBLICACIÓN: generar el index.html público
+   ============================================================ */
+const btnExportarSitio = $('btnExportarSitio');
+
+function escaparScriptJSON(obj){
+  return JSON.stringify(obj).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+}
+
+function obtenerDatosPublicados(){
+  const catalogo = obtenerCatalogo().filter(s => s.publicado !== false);
+  let categorias = [], categoriasOcultas = [], fondo = '';
+  try { categorias = JSON.parse(localStorage.getItem(CLAVE_CATS)) || []; } catch(e){}
+  try { categoriasOcultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTA)) || []; } catch(e){}
+  try { fondo = localStorage.getItem(CLAVE_FONDO_ADM) || ''; } catch(e){}
+  return { catalogo, categorias, categoriasOcultas, fondo };
+}
+
+function construirIndexPublicado(){
+  const datos = obtenerDatosPublicados();
+  const doc = document.documentElement.cloneNode(true);
+  const bloqueCatalogo = doc.querySelector('#catalogoPublicado');
+  const bloqueDatos = doc.querySelector('#datosPublicados');
+  if(bloqueCatalogo) bloqueCatalogo.textContent = escaparScriptJSON(datos.catalogo);
+  if(bloqueDatos) bloqueDatos.textContent = escaparScriptJSON({
+    categorias: datos.categorias, categoriasOcultas: datos.categoriasOcultas, fondo: datos.fondo
+  });
+  return '<!DOCTYPE html>\n' + doc.outerHTML;
+}
+
+function descargarIndexPublicado(){
+  const html = construirIndexPublicado();
+  const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'index.html';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const total = obtenerDatosPublicados().catalogo.length;
+  alert(total + ' producto(s) publicado(s) en index.html.\n\nSube este archivo a GitHub/Vercel para que todos puedan verlo.');
+}
+
+if(btnExportarSitio) btnExportarSitio.addEventListener('click', descargarIndexPublicado);
 
 /* ============================================================
    6. Abrir y cerrar el panel
