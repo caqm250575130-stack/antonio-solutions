@@ -76,8 +76,7 @@ function catalogoDesdeHTML(){
       caracteristicas: [...art.querySelectorAll('.detalles li')].map(li => li.textContent.trim()),
       categorias     : (art.dataset.categoria || '').split(' ').filter(Boolean),
       imagen         : art.querySelector('.marco-imagen img')?.getAttribute('src') || '',
-      agotado        : art.classList.contains('agotado'),
-      publicado      : true
+      agotado        : art.classList.contains('agotado')
     };
   });
 }
@@ -185,7 +184,7 @@ btnAdmin.addEventListener('click', () => {
   else pedirContrasena();
 });
 btnPassEntrar.addEventListener('click', comprobarContrasena);
-btnPassCancel.addEventListener('click', cerrarAccesoAdmin);
+btnPassCancel.addEventListener('click', () => cerrarModal(modalPass));
 campoPass.addEventListener('keydown', e => {
   if(e.key === 'Enter'){ e.preventDefault(); comprobarContrasena(); }
 });
@@ -446,7 +445,7 @@ formAdmin.addEventListener('submit', async e => {
     if(serv) Object.assign(serv, { titulo, precio, caracteristicas, categorias, imagen: imagenActual });
   } else {
     catalogo.unshift({ id: nuevoId(), titulo, precio, caracteristicas, categorias,
-                       imagen: imagenActual, agotado: false, publicado: false });
+                       imagen: imagenActual, agotado: false });
   }
 
   if(await aplicarCambios(catalogo)) limpiarFormulario();
@@ -485,12 +484,6 @@ function dibujarListaAdmin(){
     acciones.className = 'acciones';
     acciones.append(
       crearBoton('Editar', () => cargarEnFormulario(s)),
-      crearBoton(s.publicado === false ? 'Publicar' : 'Publicado ✓', async () => {
-        const cat = obtenerCatalogo();
-        const serv = cat.find(x => x.id === s.id);
-        if(serv) serv.publicado = serv.publicado === false;
-        await aplicarCambios(cat);
-      }),
       crearBoton(s.agotado ? 'Disponible' : 'No disponible', async () => {
         const cat = obtenerCatalogo();
         const serv = cat.find(x => x.id === s.id);
@@ -537,85 +530,8 @@ async function mover(id, direccion){
 }
 
 /* ============================================================
-   5.5 PUBLICACIÓN: generar el index.html público
-   ============================================================ */
-const btnExportarSitio = $('btnExportarSitio');
-
-function escaparScriptJSON(obj){
-  return JSON.stringify(obj).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-}
-
-function obtenerDatosPublicados(){
-  const catalogo = obtenerCatalogo().filter(s => s.publicado !== false);
-  let categorias = [], categoriasOcultas = [], fondo = '';
-  try { categorias = JSON.parse(localStorage.getItem(CLAVE_CATS)) || []; } catch(e){}
-  try { categoriasOcultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTA)) || []; } catch(e){}
-  try { fondo = localStorage.getItem(CLAVE_FONDO_ADM) || ''; } catch(e){}
-  return { catalogo, categorias, categoriasOcultas, fondo };
-}
-
-function construirIndexPublicado(){
-  const datos = obtenerDatosPublicados();
-  const doc = document.documentElement.cloneNode(true);
-
-  // El panel de administrador nunca se publica abierto.
-  const adminPublicado = doc.querySelector('#modalAdminFondo');
-  if(adminPublicado) adminPublicado.classList.remove('visible');
-
-  const passPublicado = doc.querySelector('#modalPassFondo');
-  if(passPublicado) passPublicado.classList.remove('visible');
-
-  const bloqueCatalogo = doc.querySelector('#catalogoPublicado');
-  const bloqueDatos = doc.querySelector('#datosPublicados');
-
-  if(bloqueCatalogo) bloqueCatalogo.textContent = escaparScriptJSON(datos.catalogo);
-  if(bloqueDatos) bloqueDatos.textContent = escaparScriptJSON({
-    categorias: datos.categorias,
-    categoriasOcultas: datos.categoriasOcultas,
-    fondo: datos.fondo
-  });
-
-  return '<!DOCTYPE html>\n' + doc.outerHTML;
-}
-
-function descargarIndexPublicado(){
-  const html = construirIndexPublicado();
-  const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'index.html';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  const total = obtenerDatosPublicados().catalogo.length;
-  alert(total + ' producto(s) publicado(s) en index.html.\n\nSube este archivo a GitHub/Vercel para que todos puedan verlo.');
-}
-
-if(btnExportarSitio) btnExportarSitio.addEventListener('click', () => {
-  descargarIndexPublicado();
-  const estado = $('estadoGuardarIndex');
-  if(estado){
-    estado.textContent = 'Index generado. El panel se cerrará y la próxima entrada pedirá contraseña.';
-  }
-  cerrarPanelAdmin();
-});
-
-/* ============================================================
    6. Abrir y cerrar el panel
    ============================================================ */
-function cerrarPanelAdmin(){
-  cerrarModal(modalAdmin);
-  sesionAbierta = false;
-  limpiarFormulario();
-  fondoNuevo = '';
-}
-
-function cerrarAccesoAdmin(){
-  cerrarModal(modalPass);
-  cerrarPanelAdmin();
-  campoPass.value = '';
-  errorPass.hidden = true;
-}
-
 function abrirPanel(){
   limpiarFormulario();
   dibujarListaAdmin();
@@ -623,22 +539,15 @@ function abrirPanel(){
   abrirModal(modalAdmin);
 }
 
-btnCerrar.addEventListener('click', cerrarPanelAdmin);
+btnCerrar.addEventListener('click', () => cerrarModal(modalAdmin));
 
-// Clic en el fondo oscuro = salir del administrador y bloquear la sesión.
-modalAdmin.addEventListener('click', e => {
-  if(e.target === modalAdmin) cerrarPanelAdmin();
+[modalPass, modalAdmin].forEach(m => {
+  m.addEventListener('click', e => { if(e.target === m) cerrarModal(m); });
 });
-
-// Si se pulsa fuera del recuadro de contraseña, también se cierra.
-modalPass.addEventListener('click', e => {
-  if(e.target === modalPass) cerrarAccesoAdmin();
-});
-
 document.addEventListener('keydown', e => {
   if(e.key !== 'Escape') return;
-  if(modalAdmin.classList.contains('visible')) cerrarPanelAdmin();
-  else if(modalPass.classList.contains('visible')) cerrarAccesoAdmin();
+  cerrarModal(modalPass);
+  cerrarModal(modalAdmin);
 });
 
 })();
