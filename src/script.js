@@ -21,7 +21,14 @@ const SVG_WHATSAPP = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#042
    ------------------------------------------------------------ */
 function aplicarFondoGuardado(){
   try {
-    const guardado = localStorage.getItem(CLAVE_FONDO);
+    let guardado = localStorage.getItem(CLAVE_FONDO);
+    if(!guardado){
+      const bloque = document.getElementById('datosPublicados');
+      if(bloque && bloque.textContent.trim()){
+        const datos = JSON.parse(bloque.textContent);
+        guardado = datos && datos.fondo ? datos.fondo : '';
+      }
+    }
     if(guardado) document.documentElement.style.setProperty('--fondo-img', 'url("' + guardado + '")');
   } catch(e){ /* si falla, queda el fondo de styles.css */ }
 }
@@ -150,13 +157,31 @@ pintarFondosDifuminados(); // también para las tarjetas que vienen en el HTML
    CATEGORÍAS: las creadas desde el panel se agregan;
    las eliminadas se quitan de la barra lateral.
    ------------------------------------------------------------ */
+function leerDatosPublicados(){
+  try {
+    const bloque = document.getElementById('datosPublicados');
+    if(bloque && bloque.textContent.trim()){
+      const datos = JSON.parse(bloque.textContent);
+      return datos && typeof datos === 'object' ? datos : null;
+    }
+  } catch(e){}
+  return null;
+}
 function leerCategoriasGuardadas(){
-  try { return JSON.parse(localStorage.getItem(CLAVE_CATEGORIAS)) || []; }
-  catch(e){ return []; }
+  try {
+    const local = JSON.parse(localStorage.getItem(CLAVE_CATEGORIAS));
+    if(Array.isArray(local) && local.length) return local;
+  } catch(e){}
+  const datos = leerDatosPublicados();
+  return Array.isArray(datos?.categorias) ? datos.categorias : [];
 }
 function leerCategoriasOcultas(){
-  try { return JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTAS)) || []; }
-  catch(e){ return []; }
+  try {
+    const local = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTAS));
+    if(Array.isArray(local) && local.length) return local;
+  } catch(e){}
+  const datos = leerDatosPublicados();
+  return Array.isArray(datos?.categoriasOcultas) ? datos.categoriasOcultas : [];
 }
 
 function aplicarCategoriasGuardadas(){
