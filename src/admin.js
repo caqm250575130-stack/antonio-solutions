@@ -52,6 +52,7 @@ const campoFondoAdmin     = $('campoFondoAdmin');
 const previaFondoAdmin    = $('previaFondoAdmin');
 const btnGuardarFondo     = $('btnGuardarFondo');
 const btnRestablecerFondo = $('btnRestablecerFondo');
+const btnGuardarIndex    = $('btnGuardarIndex');
 
 let sesionAbierta = false;  // evita pedir la contraseña dos veces por visita
 let imagenActual  = '';     // imagen (base64) del servicio que se está editando
@@ -110,11 +111,12 @@ async function guardarCatalogo(catalogo){
 }
 
 /* Guarda y refresca el sitio y la lista del panel de una sola vez. */
-async function aplicarCambios(catalogo){
+async function aplicarCambios(catalogo, cerrarDespues = true){
   const ok = await guardarCatalogo(catalogo);
   if(!ok) return false;
   if(typeof window.recargarSitio === 'function') window.recargarSitio();
   dibujarListaAdmin();
+  if(cerrarDespues) cerrarSesionAdmin();
   return true;
 }
 
@@ -156,6 +158,104 @@ function comprimirImagen(src, maxLado = MAX_LADO, calidad = CALIDAD){
 }
 
 /* ============================================================
+   SEGURIDAD DE SESIÓN DEL PANEL
+   ------------------------------------------------------------
+   Al cerrar el panel se invalida la sesión. Así, la próxima
+   entrada siempre vuelve a pedir la contraseña.
+   ============================================================ */
+function cerrarSesionAdmin(){
+  sesionAbierta = false;
+  cerrarModal(modalAdmin);
+  cerrarModal(modalPass);
+  campoPass.value = '';
+  errorPass.hidden = true;
+}
+
+/* ============================================================
+   EXPORTAR EL INDEX CON LOS CAMBIOS ACTUALES
+   ------------------------------------------------------------
+   localStorage pertenece al navegador. Para que el cambio viaje
+   con el index y pueda publicarse para todos, se genera un nuevo
+   index.html que restaura los datos antes de cargar script.js.
+   ============================================================ */
+function leerValorLocalStorage(clave, fallback){
+  try {
+    const valor = localStorage.getItem(clave);
+    return valor === null ? fallback : valor;
+  } catch(e) {
+    return fallback;
+  }
+}
+
+function escaparParaScript(texto){
+  return String(texto)
+    .replace(/\\/g, '\\\\')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function generarIndexPublicable(){
+  const catalogo = leerValorLocalStorage(CLAVE, '');
+  const categorias = leerValorLocalStorage(CLAVE_CATS, '[]');
+  const ocultas = leerValorLocalStorage(CLAVE_CAT_OCULTA, '[]');
+  const fondo = leerValorLocalStorage(CLAVE_FONDO_ADM, '');
+
+  const estado = JSON.stringify({
+    catalogo,
+    categorias,
+    ocultas,
+    fondo
+  });
+
+  const bootstrap = `<script id="datosPublicados">
+(function(){
+  try {
+    const datos = ${escaparParaScript(estado)};
+    if(datos.catalogo) localStorage.setItem('${CLAVE}', datos.catalogo);
+    if(datos.categorias) localStorage.setItem('${CLAVE_CATS}', datos.categorias);
+    if(datos.ocultas) localStorage.setItem('${CLAVE_CAT_OCULTA}', datos.ocultas);
+    if(datos.fondo) localStorage.setItem('${CLAVE_FONDO_ADM}', datos.fondo);
+  } catch(e) {}
+})();
+<\/script>`;
+
+  const doc = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  const salida = doc.replace(
+    /<script\s+src=["']script\.js["']><\/script>/i,
+    bootstrap + '\\n<script src="script.js"></script>'
+  );
+
+  return salida;
+}
+
+function descargarIndexPublicable(){
+  const contenido = generarIndexPublicable();
+  const blob = new Blob([contenido], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = 'index.html';
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+if(btnGuardarIndex){
+  btnGuardarIndex.addEventListener('click', () => {
+    try {
+      descargarIndexPublicable();
+      alert('Index guardado. Sube el archivo index.html descargado para que los cambios los vean todos.');
+      cerrarSesionAdmin();
+    } catch(e) {
+      alert('No se pudo generar el index. Intenta nuevamente.');
+    }
+  });
+}
+
+/* ============================================================
    3. CONTRASEÑA
    ============================================================ */
 function abrirModal(modal){ modal.classList.add('visible'); }
@@ -184,7 +284,7 @@ btnAdmin.addEventListener('click', () => {
   else pedirContrasena();
 });
 btnPassEntrar.addEventListener('click', comprobarContrasena);
-btnPassCancel.addEventListener('click', () => cerrarModal(modalPass));
+btnPassCancel.addEventListener('click', () => { sesionAbierta = false; cerrarModal(modalPass); });
 campoPass.addEventListener('keydown', e => {
   if(e.key === 'Enter'){ e.preventDefault(); comprobarContrasena(); }
 });
@@ -243,6 +343,7 @@ btnGuardarFondo.addEventListener('click', async () => {
     aplicarFondo(fondoNuevo);
     fondoNuevo = '';
     campoFondoAdmin.value = '';
+    cerrarSesionAdmin();
   }
 });
 
@@ -330,7 +431,7 @@ function anadirCategoria(){
   dibujarCategorias([...seleccionadas, valor]);
 
   campoNuevaCat.value = '';
-  campoNuevaCat.focus();
+  cerrarSesionAdmin();
 }
 
 /* Quita una categoría de la barra lateral y de todos los servicios
@@ -448,7 +549,7 @@ formAdmin.addEventListener('submit', async e => {
                        imagen: imagenActual, agotado: false });
   }
 
-  if(await aplicarCambios(catalogo)) limpiarFormulario();
+  if(await aplicarCambios(catalogo, true)) limpiarFormulario();
 });
 
 btnCancelForm.addEventListener('click', limpiarFormulario);
@@ -539,15 +640,22 @@ function abrirPanel(){
   abrirModal(modalAdmin);
 }
 
-btnCerrar.addEventListener('click', () => cerrarModal(modalAdmin));
+btnCerrar.addEventListener('click', cerrarSesionAdmin);
 
-[modalPass, modalAdmin].forEach(m => {
-  m.addEventListener('click', e => { if(e.target === m) cerrarModal(m); });
+modalPass.addEventListener('click', e => {
+  if(e.target === modalPass) {
+    sesionAbierta = false;
+    cerrarModal(modalPass);
+  }
 });
+
+modalAdmin.addEventListener('click', e => {
+  if(e.target === modalAdmin) cerrarSesionAdmin();
+});
+
 document.addEventListener('keydown', e => {
   if(e.key !== 'Escape') return;
-  cerrarModal(modalPass);
-  cerrarModal(modalAdmin);
+  cerrarSesionAdmin();
 });
 
 })();

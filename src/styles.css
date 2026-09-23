@@ -413,6 +413,18 @@ a{text-decoration:none;color:inherit}
 .modal-header{display:flex;justify-content:space-between;align-items:center}
 .btn-cerrar{background:none;border:none;color:#fff;font-size:1.3rem;cursor:pointer;line-height:1}
 
+
+.bloque-publicar{
+  padding:12px;
+  margin:4px 0;
+  border:1px solid rgba(107,139,255,.35);
+  border-radius:8px;
+  background:rgba(107,139,255,.07);
+}
+.bloque-publicar h3{margin-bottom:6px}
+.bloque-publicar .modal-botones{margin-top:10px}
+#btnGuardarIndex{width:100%}
+
 .modal-caja label{display:block;font-size:.85rem;color:var(--texto-suave);margin-top:2px}
 .modal-caja input[type="password"],
 .modal-caja input[type="text"],
