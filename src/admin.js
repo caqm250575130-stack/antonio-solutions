@@ -584,6 +584,15 @@ function dibujarListaAdmin(){
     const sinDisponibilidad = s.agotado || !s.imagen;
     const item = document.createElement('div');
     item.className = 'item-admin' + (sinDisponibilidad ? ' agotado-admin' : '');
+    item.draggable = true;
+    item.dataset.id = s.id;
+    item.setAttribute('aria-label', 'Producto ' + s.titulo + '. Arrastra para cambiar su posición.');
+
+    const asa = document.createElement('span');
+    asa.className = 'asa-arrastre';
+    asa.textContent = '⋮⋮';
+    asa.title = 'Arrastra este producto para cambiarlo de posición';
+    asa.setAttribute('aria-hidden', 'true');
 
     const img = document.createElement('img');
     img.alt = s.titulo;
@@ -620,7 +629,7 @@ function dibujarListaAdmin(){
       })
     );
 
-    item.append(img, info, acciones);
+    item.append(asa, img, info, acciones);
     listaAdmin.appendChild(item);
   });
 
@@ -630,6 +639,114 @@ function dibujarListaAdmin(){
     listaAdmin.appendChild(vacio);
   }
 }
+
+/* ------------------------------------------------------------
+   Arrastrar y soltar para reordenar productos rápidamente.
+   El cambio se guarda solamente al soltar, para no escribir
+   continuamente en localStorage mientras el usuario arrastra.
+   ------------------------------------------------------------ */
+let itemArrastrado = null;
+let ordenGuardadoAntesDeArrastrar = null;
+
+function limpiarEstadoArrastre(){
+  listaAdmin.querySelectorAll('.arrastrando, .objetivo-arrastre').forEach(el => {
+    el.classList.remove('arrastrando', 'objetivo-arrastre');
+  });
+}
+
+listaAdmin.addEventListener('dragstart', e => {
+  const item = e.target.closest('.item-admin');
+  if(!item || e.target.closest('button')) {
+    e.preventDefault();
+    return;
+  }
+
+  itemArrastrado = item;
+  ordenGuardadoAntesDeArrastrar = obtenerCatalogo().map(s => s.id);
+  item.classList.add('arrastrando');
+
+  if(e.dataTransfer){
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.dataset.id);
+  }
+});
+
+listaAdmin.addEventListener('dragover', e => {
+  if(!itemArrastrado) return;
+  e.preventDefault();
+
+  const objetivo = e.target.closest('.item-admin');
+  if(!objetivo || objetivo === itemArrastrado) return;
+
+  listaAdmin.querySelectorAll('.objetivo-arrastre').forEach(el => {
+    el.classList.remove('objetivo-arrastre');
+  });
+  objetivo.classList.add('objetivo-arrastre');
+
+  if(e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+});
+
+listaAdmin.addEventListener('dragleave', e => {
+  const objetivo = e.target.closest('.item-admin');
+  if(objetivo && !objetivo.contains(e.relatedTarget)){
+    objetivo.classList.remove('objetivo-arrastre');
+  }
+});
+
+listaAdmin.addEventListener('drop', async e => {
+  if(!itemArrastrado) return;
+  e.preventDefault();
+
+  const objetivo = e.target.closest('.item-admin');
+  if(!objetivo || objetivo === itemArrastrado){
+    limpiarEstadoArrastre();
+    return;
+  }
+
+  const lista = [...listaAdmin.querySelectorAll('.item-admin')];
+  const desde = lista.indexOf(itemArrastrado);
+  let hasta = lista.indexOf(objetivo);
+
+  if(desde < 0 || hasta < 0){
+    limpiarEstadoArrastre();
+    return;
+  }
+
+  const rect = objetivo.getBoundingClientRect();
+  const insertarDespues = e.clientY > rect.top + rect.height / 2;
+
+  if(insertarDespues) hasta += 1;
+  if(desde < hasta) hasta -= 1;
+
+  if(desde === hasta){
+    limpiarEstadoArrastre();
+    return;
+  }
+
+  const cat = obtenerCatalogo();
+  const porId = new Map(cat.map(s => [s.id, s]));
+  const nuevoOrden = lista.map(el => el.dataset.id);
+  const [idMovido] = nuevoOrden.splice(desde, 1);
+  nuevoOrden.splice(hasta, 0, idMovido);
+
+  const nuevoCatalogo = nuevoOrden.map(id => porId.get(id)).filter(Boolean);
+  const ok = await aplicarCambios(nuevoCatalogo);
+
+  if(ok) {
+    itemArrastrado = null;
+    ordenGuardadoAntesDeArrastrar = null;
+  } else if(ordenGuardadoAntesDeArrastrar) {
+    dibujarListaAdmin();
+  }
+
+  limpiarEstadoArrastre();
+});
+
+listaAdmin.addEventListener('dragend', () => {
+  limpiarEstadoArrastre();
+  itemArrastrado = null;
+  ordenGuardadoAntesDeArrastrar = null;
+});
 
 function crearBoton(texto, alPulsar){
   const b = document.createElement('button');
