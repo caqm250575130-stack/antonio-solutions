@@ -3,26 +3,26 @@
    ------------------------------------------------------------
    - Botón discreto (engranaje) abajo a la derecha.
    - Pide contraseña antes de mostrar nada.
-   - Permite agregar, editar, reordenar, marcar como no
-     disponible y eliminar servicios; crear y eliminar
-     categorías; y cambiar el fondo del sitio.
-   - Todo se guarda en el navegador (localStorage) bajo las
-     mismas claves que lee script.js.
+   - Permite agregar, editar, quitar la imagen (el servicio pasa
+     a verse como "Servicio no disponible"), marcar como agotado y
+     eliminar productos. Todo se guarda en el navegador (localStorage)
+     bajo la misma clave que ya lee script.js.
    - Requiere que script.js se cargue ANTES que este archivo.
    ============================================================ */
 (function(){
 'use strict';
 
-const CLAVE            = 'solutions_catalogo_v1';
-const CLAVE_CATS       = 'solutions_categorias_v1';
-const CLAVE_CAT_OCULTA = 'solutions_categorias_ocultas_v1';
-const CLAVE_FONDO_ADM  = 'solutions_fondo_v1';
-const CONTRASENA       = 'cris_2307';
-const MAX_LADO         = 800;   // las imágenes nuevas se reducen a este tamaño máximo
-const CALIDAD          = 0.82;
+const CLAVE      = 'solutions_catalogo_v1';   // misma clave que usa script.js
+const CONTRASENA = 'cris_2307';
+const MAX_LADO   = 700;   // las fotos nuevas se reducen a este tamaño máximo
+const CALIDAD    = 0.82;  // calidad de compresión (0 a 1)
 
 /* ---------- Atajos a los elementos del HTML ---------- */
 const $ = id => document.getElementById(id);
+
+// Se conserva una copia del HTML actual para poder generar un index.html
+// completo desde el navegador sin depender de un servidor.
+const indexOriginalParaPublicar = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
 
 const btnAdmin      = $('btnAdmin');
 const modalPass     = $('modalPassFondo');
@@ -39,6 +39,7 @@ const campoIdEdit   = $('campoIdEdicion');
 const campoImagen   = $('campoImagen');
 const previaImagen  = $('previaImagen');
 const btnQuitarImg  = $('btnQuitarImagen');
+const notaSinImg    = $('notaSinImagen');
 const campoNombre   = $('campoNombre');
 const campoPrecio   = $('campoPrecio');
 const campoCaract   = $('campoCaract');
@@ -47,39 +48,43 @@ const listaAdmin    = $('listaAdminServicios');
 const btnCancelForm = $('btnCancelarForm');
 const campoNuevaCat = $('campoNuevaCategoria');
 const btnAnadirCat  = $('btnAnadirCategoria');
+const CLAVE_CATEGORIAS = 'solutions_categorias_v1'; // misma clave que usa script.js
+const CLAVE_CAT_OCULTAS = 'solutions_categorias_ocultas_v1'; // categorías del HTML que se eliminaron
+const CLAVE_FONDO   = 'solutions_fondo_v1'; // misma clave que usa script.js
 
-const campoFondoAdmin     = $('campoFondoAdmin');
-const previaFondoAdmin    = $('previaFondoAdmin');
-const btnGuardarFondo     = $('btnGuardarFondo');
+const campoFondoAdmin    = $('campoFondoAdmin');
+const previaFondoAdmin   = $('previaFondoAdmin');
+const btnGuardarFondo    = $('btnGuardarFondo');
 const btnRestablecerFondo = $('btnRestablecerFondo');
-const btnGuardarIndex    = $('btnGuardarIndex');
+const btnGuardarIndex     = $('btnGuardarIndex');
+const estadoGuardarIndex  = $('estadoGuardarIndex');
+let fondoNuevo = ''; // imagen de fondo recién elegida, pendiente de guardar
 
-let sesionAbierta = false;  // evita pedir la contraseña dos veces por visita
-let imagenActual  = '';     // imagen (base64) del servicio que se está editando
-let fondoNuevo    = '';     // fondo elegido, pendiente de guardar
+let sesionAbierta = false;  // solo dura mientras el panel actual está abierto
+let imagenActual  = '';     // foto (en base64) del servicio que se está editando
 
 /* ============================================================
    1. CATÁLOGO: leer, construir desde el HTML y guardar
    ============================================================ */
+
+/* Lee lo guardado en el navegador; si no hay nada devuelve null. */
 function leerGuardado(){
   try { return JSON.parse(localStorage.getItem(CLAVE)); }
   catch(e){ return null; }
 }
 
-/* La primera vez el catálogo se arma leyendo las tarjetas del HTML. */
+/* La primera vez que se usa el panel todavía no hay nada guardado,
+   así que el catálogo se arma leyendo los servicios del HTML. */
 function catalogoDesdeHTML(){
-  return [...document.querySelectorAll('#listaServicios .servicio')].map(art => {
-    const textoPrecio = (art.querySelector('.precio')?.textContent || '');
-    return {
-      id             : art.dataset.id || nuevoId(),
-      titulo         : art.querySelector('h3').textContent.trim(),
-      precio         : parseFloat(textoPrecio.replace(/[^\d.]/g, '')) || 0,
-      caracteristicas: [...art.querySelectorAll('.detalles li')].map(li => li.textContent.trim()),
-      categorias     : (art.dataset.categoria || '').split(' ').filter(Boolean),
-      imagen         : art.querySelector('.marco-imagen img')?.getAttribute('src') || '',
-      agotado        : art.classList.contains('agotado')
-    };
-  });
+  return [...document.querySelectorAll('#listaServicios .servicio')].map(art => ({
+    id            : art.dataset.id || nuevoId(),
+    titulo        : art.querySelector('h3').textContent.trim(),
+    precio        : parseFloat((art.querySelector('.precio').textContent || '0').replace(/[^\d.]/g,'')) || 0,
+    caracteristicas: [...art.querySelectorAll('.detalles li')].map(li => li.textContent.trim()),
+    categorias    : (art.dataset.categoria || '').split(' ').filter(Boolean),
+    imagen        : art.querySelector('.marco-imagen img')?.getAttribute('src') || '',
+    agotado       : art.classList.contains('agotado')
+  }));
 }
 
 function obtenerCatalogo(){
@@ -87,36 +92,36 @@ function obtenerCatalogo(){
 }
 
 function nuevoId(){
-  return 's' + Date.now().toString(36) + Math.floor(Math.random()*1000);
+  return 'p' + Date.now().toString(36) + Math.floor(Math.random()*1000);
 }
 
-/* Guarda en el navegador. Si no cabe, comprime las imágenes y reintenta. */
+/* Guarda en el navegador. Si no cabe (las fotos ocupan mucho),
+   comprime todas las imágenes y lo intenta de nuevo. */
 async function guardarCatalogo(catalogo){
   try {
     localStorage.setItem(CLAVE, JSON.stringify(catalogo));
     return true;
   } catch(e){
-    for(const s of catalogo){
-      if(s.imagen && s.imagen.startsWith('data:')) s.imagen = await comprimirImagen(s.imagen, 520, 0.7);
+    for(const p of catalogo){
+      if(p.imagen && p.imagen.startsWith('data:')) p.imagen = await comprimirImagen(p.imagen, 520, 0.7);
     }
     try {
       localStorage.setItem(CLAVE, JSON.stringify(catalogo));
       return true;
     } catch(e2){
-      alert('No hay espacio en el navegador para guardar tantas imágenes.\n' +
-            'Elimina algún servicio o vuelve a subir la imagen en un tamaño más pequeño.');
+      alert('No hay espacio en el navegador para guardar tantas fotos.\n' +
+            'Elimina algún producto o vuelve a subir la imagen en un tamaño más pequeño.');
       return false;
     }
   }
 }
 
-/* Guarda y refresca el sitio y la lista del panel de una sola vez. */
-async function aplicarCambios(catalogo, cerrarDespues = false){
+/* Guarda y refresca la tienda y la lista del panel de una sola vez. */
+async function aplicarCambios(catalogo){
   const ok = await guardarCatalogo(catalogo);
   if(!ok) return false;
   if(typeof window.recargarSitio === 'function') window.recargarSitio();
   dibujarListaAdmin();
-  if(cerrarDespues) cerrarSesionAdmin();
   return true;
 }
 
@@ -152,127 +157,8 @@ function comprimirImagen(src, maxLado = MAX_LADO, calidad = CALIDAD){
       }
       res(salida && salida.length < src.length ? salida : src);
     };
-    img.onerror = () => res(src);
+    img.onerror = () => res(src);   // si algo falla, se deja la original
     img.src = src;
-  });
-}
-
-/* ============================================================
-   SEGURIDAD DE SESIÓN DEL PANEL
-   ------------------------------------------------------------
-   Al cerrar el panel se invalida la sesión. Así, la próxima
-   entrada siempre vuelve a pedir la contraseña.
-   ============================================================ */
-function cerrarSesionAdmin(){
-  sesionAbierta = false;
-  cerrarModal(modalAdmin);
-  cerrarModal(modalPass);
-  campoPass.value = '';
-  errorPass.hidden = true;
-}
-
-/* ============================================================
-   EXPORTAR EL INDEX CON LOS CAMBIOS ACTUALES
-   ------------------------------------------------------------
-   localStorage pertenece al navegador. Para que el cambio viaje
-   con el index y pueda publicarse para todos, se genera un nuevo
-   index.html que restaura los datos antes de cargar script.js.
-   ============================================================ */
-function leerValorLocalStorage(clave, fallback){
-  try {
-    const valor = localStorage.getItem(clave);
-    return valor === null ? fallback : valor;
-  } catch(e) {
-    return fallback;
-  }
-}
-
-function escaparParaScript(texto){
-  return String(texto)
-    .replace(/\\/g, '\\\\')
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
-}
-
-function generarIndexPublicable(){
-  const catalogo = leerValorLocalStorage(CLAVE, '');
-  const categorias = leerValorLocalStorage(CLAVE_CATS, '[]');
-  const ocultas = leerValorLocalStorage(CLAVE_CAT_OCULTA, '[]');
-  const fondo = leerValorLocalStorage(CLAVE_FONDO_ADM, '');
-
-  const estado = JSON.stringify({
-    catalogo,
-    categorias,
-    ocultas,
-    fondo
-  });
-
-  const bootstrap = `<script id="datosPublicados">
-(function(){
-  try {
-    const datos = ${escaparParaScript(estado)};
-    if(datos.catalogo) localStorage.setItem('${CLAVE}', datos.catalogo);
-    if(datos.categorias) localStorage.setItem('${CLAVE_CATS}', datos.categorias);
-    if(datos.ocultas) localStorage.setItem('${CLAVE_CAT_OCULTA}', datos.ocultas);
-    if(datos.fondo) localStorage.setItem('${CLAVE_FONDO_ADM}', datos.fondo);
-  } catch(e) {}
-})();
-<\/script>`;
-
-  /*
-   * El administrador está abierto cuando se pulsa este botón.
-   * Por eso NO se debe exportar document.documentElement.outerHTML
-   * directamente: hacerlo conservaría el modal con la clase "visible"
-   * y el index publicado aparecería con el menú de administrador abierto.
-   */
-  const html = document.documentElement.cloneNode(true);
-
-  const modalAdminExport = html.querySelector('#modalAdminFondo');
-  const modalPassExport  = html.querySelector('#modalPassFondo');
-
-  if(modalAdminExport) modalAdminExport.classList.remove('visible');
-  if(modalPassExport) {
-    modalPassExport.classList.remove('visible');
-    modalPassExport.hidden = true;
-  }
-
-  const doc = '<!DOCTYPE html>\n' + html.outerHTML;
-  const salida = doc.replace(
-    /<script\s+src=["']script\.js["']><\/script>/i,
-    bootstrap + '\n<script src="script.js"></script>'
-  );
-
-  return salida;
-}
-
-function descargarIndexPublicable(){
-  const contenido = generarIndexPublicable();
-  const blob = new Blob([contenido], {type:'text/html;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const enlace = document.createElement('a');
-  enlace.href = url;
-  enlace.download = 'index.html';
-  document.body.appendChild(enlace);
-  enlace.click();
-  enlace.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-if(btnGuardarIndex){
-  btnGuardarIndex.addEventListener('click', () => {
-    try {
-      /* El index ya se genera sin el menú administrativo. */
-      descargarIndexPublicable();
-
-      /* Guardar el index SIEMPRE termina la sesión administrativa. */
-      cerrarSesionAdmin();
-
-      alert('Index guardado. Sube el archivo index.html descargado para que los cambios los vean todos.');
-    } catch(e) {
-      alert('No se pudo generar el index. Intenta nuevamente.');
-    }
   });
 }
 
@@ -305,27 +191,30 @@ btnAdmin.addEventListener('click', () => {
   else pedirContrasena();
 });
 btnPassEntrar.addEventListener('click', comprobarContrasena);
-btnPassCancel.addEventListener('click', () => { sesionAbierta = false; cerrarModal(modalPass); });
+btnPassCancel.addEventListener('click', () => cerrarModal(modalPass));
 campoPass.addEventListener('keydown', e => {
   if(e.key === 'Enter'){ e.preventDefault(); comprobarContrasena(); }
 });
 campoPass.addEventListener('input', () => { errorPass.hidden = true; });
 
 /* ============================================================
-   3.5 FONDO DEL SITIO (wallpaper)
+   3.5 FONDO DE LA TIENDA (wallpaper)
    ============================================================ */
+
+/* Aplica una imagen de fondo (data URL) a toda la página, al instante. */
 function aplicarFondo(dataURL){
   document.documentElement.style.setProperty('--fondo-img', 'url("' + dataURL + '")');
 }
 
+/* Guarda el fondo en el navegador; si no cabe, lo comprime más y reintenta. */
 async function guardarFondo(dataURL){
   try {
-    localStorage.setItem(CLAVE_FONDO_ADM, dataURL);
+    localStorage.setItem(CLAVE_FONDO, dataURL);
     return true;
   } catch(e){
     const comprimida = await comprimirImagen(dataURL, 1100, 0.68);
     try {
-      localStorage.setItem(CLAVE_FONDO_ADM, comprimida);
+      localStorage.setItem(CLAVE_FONDO, comprimida);
       aplicarFondo(comprimida);
       return true;
     } catch(e2){
@@ -336,9 +225,10 @@ async function guardarFondo(dataURL){
   }
 }
 
+/* Muestra en el panel el fondo que esté guardado actualmente, si hay alguno. */
 function cargarFondoEnPanel(){
   let guardado = '';
-  try { guardado = localStorage.getItem(CLAVE_FONDO_ADM) || ''; } catch(e){ guardado = ''; }
+  try { guardado = localStorage.getItem(CLAVE_FONDO) || ''; } catch(e){ guardado = ''; }
   if(guardado){ previaFondoAdmin.src = guardado; previaFondoAdmin.hidden = false; }
   else { previaFondoAdmin.hidden = true; previaFondoAdmin.removeAttribute('src'); }
   campoFondoAdmin.value = '';
@@ -350,7 +240,7 @@ campoFondoAdmin.addEventListener('change', async () => {
   if(!archivo) return;
   try {
     const original = await archivoADataURL(archivo);
-    fondoNuevo = await comprimirImagen(original, 1600, 0.8);
+    fondoNuevo = await comprimirImagen(original, 1600, 0.8); // fondos van más grandes que las fotos de producto
     previaFondoAdmin.src = fondoNuevo;
     previaFondoAdmin.hidden = false;
   } catch(e){
@@ -360,7 +250,8 @@ campoFondoAdmin.addEventListener('change', async () => {
 
 btnGuardarFondo.addEventListener('click', async () => {
   if(!fondoNuevo){ alert('Primero elige una imagen de fondo.'); return; }
-  if(await guardarFondo(fondoNuevo)){
+  const ok = await guardarFondo(fondoNuevo);
+  if(ok){
     aplicarFondo(fondoNuevo);
     fondoNuevo = '';
     campoFondoAdmin.value = '';
@@ -368,18 +259,22 @@ btnGuardarFondo.addEventListener('click', async () => {
 });
 
 btnRestablecerFondo.addEventListener('click', () => {
-  if(!confirm('¿Restablecer el fondo original del sitio?')) return;
-  try { localStorage.removeItem(CLAVE_FONDO_ADM); } catch(e){}
-  document.documentElement.style.removeProperty('--fondo-img');
+  if(!confirm('¿Restablecer el fondo original de la tienda?')) return;
+  try { localStorage.removeItem(CLAVE_FONDO); } catch(e){}
+  document.documentElement.style.removeProperty('--fondo-img'); // vuelve al valor de styles.css
   cargarFondoEnPanel();
 });
 
+if(btnGuardarIndex){
+  btnGuardarIndex.addEventListener('click', publicarIndex);
+}
+
 /* ============================================================
-   4. PANEL: formulario de alta / edición de servicios
+   4. PANEL: formulario de alta / edición
    ============================================================ */
 
-/* Las categorías se toman de la barra lateral, así nunca
-   se desincronizan con los filtros del sitio. */
+/* Las categorías se toman de los botones de la barra lateral,
+   así nunca se desincronizan con los filtros de la tienda. */
 function categoriasDisponibles(){
   return [...document.querySelectorAll('#panelCategorias button')]
     .map(b => ({ valor: b.dataset.filtro, texto: b.textContent.trim() }))
@@ -399,6 +294,7 @@ function dibujarCategorias(seleccionadas = []){
     chk.checked = seleccionadas.includes(cat.valor);
     label.append(chk, document.createTextNode(cat.texto));
 
+    // botón para quitar la categoría de toda la tienda
     const quitar = document.createElement('button');
     quitar.type = 'button';
     quitar.className = 'btn-quitar-cat';
@@ -412,10 +308,60 @@ function dibujarCategorias(seleccionadas = []){
   });
 }
 
-/* Convierte "Redes y cableado" en "redes-y-cableado". */
+/* Quita una categoría de la barra lateral y de todos los servicios
+   que la tuvieran. Si venía escrita en el HTML se recuerda como
+   "oculta"; si se creó desde el panel, se borra de la lista guardada. */
+async function eliminarCategoria(valor, texto){
+  const catalogo = obtenerCatalogo();
+  const afectados = catalogo.filter(p => (p.categorias || []).includes(valor));
+  const huerfanos = afectados.filter(p => (p.categorias || []).length === 1);
+
+  let aviso = '¿Eliminar la categoría "' + texto + '"?';
+  if(afectados.length){
+    aviso += '\n\nSe quitará de ' + afectados.length + ' servicio(s).';
+    if(huerfanos.length){
+      aviso += '\n' + huerfanos.length + ' quedarían sin ninguna categoría ' +
+               '(seguirían viéndose en "Todos", pero no en los filtros).';
+    }
+  }
+  aviso += '\n\nLos servicios NO se eliminan.';
+  if(!confirm(aviso)) return;
+
+  // 1. quitar la categoría de cada producto
+  catalogo.forEach(p => {
+    p.categorias = (p.categorias || []).filter(c => c !== valor);
+  });
+
+  // 2. olvidarla: si era una categoría creada desde el panel se borra de su lista;
+  //    si venía en el HTML se guarda como oculta para que script.js no la muestre
+  let extra = [];
+  try { extra = JSON.parse(localStorage.getItem(CLAVE_CATEGORIAS)) || []; } catch(e){ extra = []; }
+  const eraExtra = extra.some(c => c.valor === valor);
+
+  if(eraExtra){
+    localStorage.setItem(CLAVE_CATEGORIAS, JSON.stringify(extra.filter(c => c.valor !== valor)));
+  } else {
+    let ocultas = [];
+    try { ocultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTAS)) || []; } catch(e){ ocultas = []; }
+    if(!ocultas.includes(valor)) ocultas.push(valor);
+    localStorage.setItem(CLAVE_CAT_OCULTAS, JSON.stringify(ocultas));
+  }
+
+  // 3. refrescar la barra de categorías de la tienda y guardar el catálogo
+  if(typeof window.recargarCategorias === 'function') window.recargarCategorias();
+  await aplicarCambios(catalogo);
+
+  // 4. redibujar las casillas conservando lo que estuviera marcado
+  const seleccionadas = [...listaCatCheck.querySelectorAll('input[type="checkbox"]:checked')]
+    .map(c => c.value)
+    .filter(v => v !== valor);
+  dibujarCategorias(seleccionadas);
+}
+
+/* Convierte "Útiles y arte" en "utiles-y-arte" para usarlo como data-filtro. */
 function generarValorCategoria(texto){
   const base = texto.toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-+|-+$)/g, '');
   return base || ('cat' + Date.now());
@@ -433,63 +379,27 @@ function anadirCategoria(){
   }
 
   let extra = [];
-  try { extra = JSON.parse(localStorage.getItem(CLAVE_CATS)) || []; } catch(e){ extra = []; }
+  try { extra = JSON.parse(localStorage.getItem(CLAVE_CATEGORIAS)) || []; } catch(e){ extra = []; }
 
   // si esa categoría venía en el HTML y se había eliminado, basta con dejar de ocultarla
   let ocultas = [];
-  try { ocultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTA)) || []; } catch(e){ ocultas = []; }
+  try { ocultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTAS)) || []; } catch(e){ ocultas = []; }
   if(ocultas.includes(valor)){
-    localStorage.setItem(CLAVE_CAT_OCULTA, JSON.stringify(ocultas.filter(v => v !== valor)));
+    localStorage.setItem(CLAVE_CAT_OCULTAS, JSON.stringify(ocultas.filter(v => v !== valor)));
   } else if(!extra.some(c => c.valor === valor)){
     extra.push({ valor, texto });
-    localStorage.setItem(CLAVE_CATS, JSON.stringify(extra));
+    localStorage.setItem(CLAVE_CATEGORIAS, JSON.stringify(extra));
   }
 
+  // agrega el botón a la barra de categorías de la tienda (definido en script.js)
   if(typeof window.recargarCategorias === 'function') window.recargarCategorias();
 
-  const seleccionadas = [...listaCatCheck.querySelectorAll('input[type="checkbox"]:checked')].map(c => c.value);
+  // refresca las casillas del formulario y deja marcada la categoría recién creada
+  const seleccionadas = [...listaCatCheck.querySelectorAll('input:checked')].map(c => c.value);
   dibujarCategorias([...seleccionadas, valor]);
 
   campoNuevaCat.value = '';
-}
-
-/* Quita una categoría de la barra lateral y de todos los servicios
-   que la tuvieran. Los servicios NO se eliminan. */
-async function eliminarCategoria(valor, texto){
-  const catalogo = obtenerCatalogo();
-  const afectados = catalogo.filter(s => (s.categorias || []).includes(valor));
-  const huerfanos = afectados.filter(s => (s.categorias || []).length === 1);
-
-  let aviso = '¿Eliminar la categoría "' + texto + '"?';
-  if(afectados.length){
-    aviso += '\n\nSe quitará de ' + afectados.length + ' servicio(s).';
-    if(huerfanos.length){
-      aviso += '\n' + huerfanos.length + ' quedarían sin ninguna categoría ' +
-               '(seguirían viéndose en "Todos", pero no en los filtros).';
-    }
-  }
-  aviso += '\n\nLos servicios NO se eliminan.';
-  if(!confirm(aviso)) return;
-
-  catalogo.forEach(s => { s.categorias = (s.categorias || []).filter(c => c !== valor); });
-
-  let extra = [];
-  try { extra = JSON.parse(localStorage.getItem(CLAVE_CATS)) || []; } catch(e){ extra = []; }
-  if(extra.some(c => c.valor === valor)){
-    localStorage.setItem(CLAVE_CATS, JSON.stringify(extra.filter(c => c.valor !== valor)));
-  } else {
-    let ocultas = [];
-    try { ocultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTA)) || []; } catch(e){ ocultas = []; }
-    if(!ocultas.includes(valor)) ocultas.push(valor);
-    localStorage.setItem(CLAVE_CAT_OCULTA, JSON.stringify(ocultas));
-  }
-
-  if(typeof window.recargarCategorias === 'function') window.recargarCategorias();
-  await aplicarCambios(catalogo);
-
-  const seleccionadas = [...listaCatCheck.querySelectorAll('input[type="checkbox"]:checked')]
-    .map(c => c.value).filter(v => v !== valor);
-  dibujarCategorias(seleccionadas);
+  campoNuevaCat.focus();
 }
 
 btnAnadirCat.addEventListener('click', anadirCategoria);
@@ -497,29 +407,43 @@ campoNuevaCat.addEventListener('keydown', e => {
   if(e.key === 'Enter'){ e.preventDefault(); anadirCategoria(); }
 });
 
+/* Muestra (o esconde) la vista previa y el botón "Quitar imagen" según haya foto o no. */
+function mostrarPrevia(){
+  if(imagenActual){
+    previaImagen.src = imagenActual;
+    previaImagen.hidden = false;
+    btnQuitarImg.hidden = false;
+    notaSinImg.hidden = true;
+  } else {
+    previaImagen.hidden = true;
+    previaImagen.removeAttribute('src');
+    btnQuitarImg.hidden = true;
+    // el aviso solo tiene sentido al editar un servicio que se quedó sin foto
+    notaSinImg.hidden = !campoIdEdit.value;
+  }
+}
+
 function limpiarFormulario(){
   formAdmin.reset();
   campoIdEdit.value = '';
   imagenActual = '';
-  previaImagen.hidden = true;
-  previaImagen.removeAttribute('src');
-  btnQuitarImg.hidden = true;
+  mostrarPrevia();
   tituloForm.textContent = 'Agregar servicio';
   dibujarCategorias([]);
 }
 
-function cargarEnFormulario(s){
-  campoIdEdit.value = s.id;
-  campoNombre.value = s.titulo;
-  campoPrecio.value = s.precio;
-  campoCaract.value = (s.caracteristicas || []).join('\n');
-  imagenActual = s.imagen || '';
+function cargarEnFormulario(p){
+  campoIdEdit.value = p.id;
+  campoNombre.value = p.titulo;
+  campoPrecio.value = p.precio;
+  campoCaract.value = (p.caracteristicas || []).join('\n');
+  imagenActual = p.imagen || '';
   campoImagen.value = '';
-  if(imagenActual){ previaImagen.src = imagenActual; previaImagen.hidden = false; btnQuitarImg.hidden = false; }
-  else { previaImagen.hidden = true; btnQuitarImg.hidden = true; }
-  dibujarCategorias(s.categorias || []);
+  mostrarPrevia();
+  dibujarCategorias(p.categorias || []);
   tituloForm.textContent = 'Editar servicio';
   modalAdmin.querySelector('.modal-caja').scrollTop = 0;
+  irASeccionAdmin('adminSeccionFormulario');
 }
 
 campoImagen.addEventListener('change', async () => {
@@ -528,20 +452,17 @@ campoImagen.addEventListener('change', async () => {
   try {
     const original = await archivoADataURL(archivo);
     imagenActual = await comprimirImagen(original);
-    previaImagen.src = imagenActual;
-    previaImagen.hidden = false;
-    btnQuitarImg.hidden = false;
+    mostrarPrevia();
   } catch(e){
     alert('No se pudo cargar esa imagen. Intenta con otro archivo.');
   }
 });
 
+/* Quitar la imagen del servicio que se está editando (se aplica al pulsar Guardar). */
 btnQuitarImg.addEventListener('click', () => {
   imagenActual = '';
   campoImagen.value = '';
-  previaImagen.hidden = true;
-  previaImagen.removeAttribute('src');
-  btnQuitarImg.hidden = true;
+  mostrarPrevia();
 });
 
 formAdmin.addEventListener('submit', async e => {
@@ -550,220 +471,496 @@ formAdmin.addEventListener('submit', async e => {
   const titulo = campoNombre.value.trim();
   const precio = parseFloat(campoPrecio.value);
   const caracteristicas = campoCaract.value.split('\n').map(t => t.trim()).filter(Boolean);
-  const categorias = [...listaCatCheck.querySelectorAll('input[type="checkbox"]:checked')].map(c => c.value);
+  const categorias = [...listaCatCheck.querySelectorAll('input:checked')].map(c => c.value);
 
-  if(!titulo)                { alert('Escribe el nombre del servicio.'); return; }
-  if(isNaN(precio))          { alert('Escribe un precio válido (0 para "Precio a consultar").'); return; }
-  if(!caracteristicas.length){ alert('Escribe al menos un detalle.'); return; }
-  if(!categorias.length)     { alert('Elige al menos una categoría.'); return; }
+  if(!titulo)            { alert('Escribe el nombre del servicio.'); return; }
+  if(isNaN(precio))      { alert('Escribe un precio válido.'); return; }
+  if(!caracteristicas.length){ alert('Escribe al menos una característica.'); return; }
+  if(!categorias.length) { alert('Elige al menos una categoría.'); return; }
 
   const catalogo = obtenerCatalogo();
   const id = campoIdEdit.value;
 
   if(id){
-    const serv = catalogo.find(s => s.id === id);
-    if(serv) Object.assign(serv, { titulo, precio, caracteristicas, categorias, imagen: imagenActual });
+    const prod = catalogo.find(p => p.id === id);
+    if(prod) Object.assign(prod, { titulo, precio, caracteristicas, categorias, imagen: imagenActual });
   } else {
+    // los servicios nuevos se colocan al inicio para que se vean primero
     catalogo.unshift({ id: nuevoId(), titulo, precio, caracteristicas, categorias,
                        imagen: imagenActual, agotado: false });
   }
 
-  if(await aplicarCambios(catalogo, false)) limpiarFormulario();
+  if(await aplicarCambios(catalogo)){
+    limpiarFormulario();
+    irASeccionAdmin('adminSeccionServicios');
+  }
 });
 
 btnCancelForm.addEventListener('click', limpiarFormulario);
 
 /* ============================================================
-   5. PANEL: lista de servicios existentes
+   5. PANEL: lista de productos existentes
    ============================================================ */
 function dibujarListaAdmin(){
   const catalogo = obtenerCatalogo();
   listaAdmin.innerHTML = '';
 
-  catalogo.forEach(s => {
-    const sinDisponibilidad = s.agotado || !s.imagen;
-    const item = document.createElement('div');
-    item.className = 'item-admin' + (sinDisponibilidad ? ' agotado-admin' : '');
-    item.draggable = true;
-    item.dataset.id = s.id;
-    item.setAttribute('aria-label', 'Producto ' + s.titulo + '. Arrastra para cambiar su posición.');
+  actualizarOpcionesFiltroCategoriaAdmin(catalogo);
 
-    const asa = document.createElement('span');
+  const texto = normalizarAdmin(campoBusquedaAdmin?.value || '');
+  const estado = filtroEstadoAdmin?.value || 'todos';
+  const categoria = filtroCategoriaAdmin?.value || 'todas';
+  const filtrados = catalogo.filter(p => {
+    const sinImagen = !p.imagen;
+    const agotado = p.agotado || sinImagen;
+    const coincideTexto = !texto || normalizarAdmin(
+      [p.titulo, ...(p.caracteristicas || []), ...(p.categorias || [])].join(' ')
+    ).includes(texto);
+    const coincideEstado =
+      estado === 'todos' ||
+      (estado === 'disponibles' && !agotado) ||
+      (estado === 'agotados' && agotado) ||
+      (estado === 'sin-imagen' && sinImagen);
+    const categoriasProducto = Array.isArray(p.categorias) ? p.categorias : [];
+    const coincideCategoria =
+      categoria === 'todas' ||
+      (categoria === 'sin-categoria' && categoriasProducto.length === 0) ||
+      categoriasProducto.includes(categoria);
+    return coincideTexto && coincideEstado && coincideCategoria;
+  });
+
+  const sePuedeArrastrar = !texto && estado === 'todos' && categoria === 'todas';
+
+  filtrados.forEach((p) => {
+    const item = document.createElement('article');
+    const sinImagen = !p.imagen;
+    const agotado = p.agotado || sinImagen;
+    item.className = 'item-admin-pro' + (agotado ? ' agotado-admin' : '');
+    item.draggable = sePuedeArrastrar;
+    item.dataset.productId = p.id;
+
+    const asa = document.createElement('button');
+    asa.type = 'button';
     asa.className = 'asa-arrastre';
-    asa.textContent = '⋮⋮';
-    asa.title = 'Arrastra este producto para cambiarlo de posición';
-    asa.setAttribute('aria-hidden', 'true');
+    asa.textContent = '⠿';
+    asa.title = sePuedeArrastrar ? 'Arrastra para cambiar el orden' : 'Limpia los filtros para reordenar';
+    asa.setAttribute('aria-label', asa.title);
+    asa.disabled = !sePuedeArrastrar;
 
+    const foto = document.createElement('div');
+    foto.className = 'admin-product-thumb';
     const img = document.createElement('img');
-    img.alt = s.titulo;
-    if(s.imagen) img.src = s.imagen;
+    img.alt = p.titulo;
+    img.src = p.imagen || (typeof IMG_SIN_FOTO !== 'undefined' ? IMG_SIN_FOTO : '');
+    img.onerror = function(){ this.onerror = null; };
+    foto.appendChild(img);
+
+    const estadoBadge = document.createElement('span');
+    estadoBadge.className = 'admin-estado-badge ' + (sinImagen ? 'sin-imagen' : agotado ? 'agotado' : 'disponible');
+    estadoBadge.textContent = sinImagen ? 'Sin imagen' : (agotado ? 'Agotado' : 'Disponible');
+    foto.appendChild(estadoBadge);
 
     const info = document.createElement('div');
-    info.className = 'info';
-    const nombre = document.createElement('strong');
-    nombre.textContent = s.titulo;
-    const detalle = document.createElement('span');
-    const precioTexto = Number(s.precio) > 0 ? '$' + Number(s.precio).toFixed(2) : 'A consultar';
-    detalle.textContent = precioTexto +
-                          ' · ' + (s.categorias || []).join(', ') +
-                          (sinDisponibilidad ? ' · NO DISPONIBLE' + (!s.imagen && !s.agotado ? ' (sin imagen)' : '') : '');
-    info.append(nombre, detalle);
+    info.className = 'admin-product-info';
+
+    const top = document.createElement('div');
+    top.className = 'admin-product-top';
+    const nombre = document.createElement('h4');
+    nombre.textContent = p.titulo;
+    const precio = document.createElement('strong');
+    precio.className = 'admin-product-price';
+    precio.textContent = '$' + Number(p.precio).toFixed(2);
+    top.append(nombre, precio);
+
+    const categorias = document.createElement('div');
+    categorias.className = 'admin-product-cats';
+    (p.categorias || []).forEach(cat => {
+      const chip = document.createElement('span');
+      chip.textContent = cat;
+      categorias.appendChild(chip);
+    });
+    if(!(p.categorias || []).length){
+      const chip = document.createElement('span');
+      chip.textContent = 'Sin categoría';
+      categorias.appendChild(chip);
+    }
+
+    const detalle = document.createElement('p');
+    detalle.className = 'admin-product-detail';
+    detalle.textContent = (p.caracteristicas || []).slice(0,2).join(' · ') || 'Sin características';
+
+    info.append(top, categorias, detalle);
 
     const acciones = document.createElement('div');
-    acciones.className = 'acciones';
-    acciones.append(
-      crearBoton('Editar', () => cargarEnFormulario(s)),
-      crearBoton(s.agotado ? 'Disponible' : 'No disponible', async () => {
-        const cat = obtenerCatalogo();
-        const serv = cat.find(x => x.id === s.id);
-        if(serv) serv.agotado = !serv.agotado;
-        await aplicarCambios(cat);
-      }),
-      crearBoton('↑', async () => { await mover(s.id, -1); }),
-      crearBoton('↓', async () => { await mover(s.id,  1); }),
-      crearBoton('Eliminar', async () => {
-        if(!confirm('¿Eliminar "' + s.titulo + '" del sitio?')) return;
-        const cat = obtenerCatalogo().filter(x => x.id !== s.id);
-        if(campoIdEdit.value === s.id) limpiarFormulario();
-        await aplicarCambios(cat);
-      })
-    );
+    acciones.className = 'acciones admin-product-actions';
 
-    item.append(asa, img, info, acciones);
+    const btnEditar = crearBoton('Editar', () => cargarEnFormulario(p), 'admin-btn-edit');
+    const btnEstado = crearBoton(p.agotado ? 'Marcar disponible' : 'Marcar agotado', async () => {
+      const cat = obtenerCatalogo();
+      const prod = cat.find(x => x.id === p.id);
+      if(prod) prod.agotado = !prod.agotado;
+      await aplicarCambios(cat);
+    }, p.agotado ? 'admin-btn-success' : 'admin-btn-warn');
+    if(sinImagen){
+      btnEstado.disabled = true;
+      btnEstado.textContent = 'Sube una imagen';
+      btnEstado.title = 'Sube una imagen antes de marcarlo como disponible';
+    }
+
+    const btnQuitar = crearBoton('Quitar imagen', async () => {
+      if(!confirm('¿Quitar la imagen de "' + p.titulo + '"?\n\nEl producto aparecerá como "Servicio no disponible".')) return;
+      const cat = obtenerCatalogo();
+      const prod = cat.find(x => x.id === p.id);
+      if(prod) prod.imagen = '';
+      if(campoIdEdit.value === p.id) limpiarFormulario();
+      await aplicarCambios(cat);
+    }, 'admin-btn-ghost');
+    btnQuitar.hidden = sinImagen;
+
+    const btnUp = crearBoton('↑', async () => { await mover(p.id, -1); }, 'admin-btn-square');
+    const btnDown = crearBoton('↓', async () => { await mover(p.id, 1); }, 'admin-btn-square');
+    const btnEliminar = crearBoton('Eliminar', async () => {
+      if(!confirm('¿Eliminar "' + p.titulo + '" de la tienda?')) return;
+      const cat = obtenerCatalogo().filter(x => x.id !== p.id);
+      if(campoIdEdit.value === p.id) limpiarFormulario();
+      await aplicarCambios(cat);
+    }, 'admin-btn-danger');
+
+    acciones.append(btnEditar, btnEstado, btnQuitar, btnUp, btnDown, btnEliminar);
+    item.append(asa, foto, info, acciones);
     listaAdmin.appendChild(item);
   });
 
-  if(!catalogo.length){
-    const vacio = document.createElement('p');
-    vacio.textContent = 'Todavía no hay servicios.';
+  prepararArrastreProductos();
+  actualizarResumenAdmin(catalogo);
+
+  if(!filtrados.length){
+    const vacio = document.createElement('div');
+    vacio.className = 'admin-empty-state';
+    const titulo = document.createElement('strong');
+    titulo.textContent = catalogo.length ? 'No hay resultados' : 'Todavía no hay servicios';
+    const textoVacio = document.createElement('p');
+    textoVacio.textContent = catalogo.length
+      ? 'Prueba otra búsqueda o cambia el filtro de estado.'
+      : 'Crea tu primer servicio desde el botón «Nuevo servicio».';
+    vacio.append(titulo, textoVacio);
     listaAdmin.appendChild(vacio);
   }
-}
 
-/* ------------------------------------------------------------
-   Arrastrar y soltar para reordenar productos rápidamente.
-   El cambio se guarda solamente al soltar, para no escribir
-   continuamente en localStorage mientras el usuario arrastra.
-   ------------------------------------------------------------ */
-let itemArrastrado = null;
-let ordenGuardadoAntesDeArrastrar = null;
+  if(adminListaHint){
+    adminListaHint.textContent = sePuedeArrastrar
+      ? 'Arrastra una tarjeta para cambiar la posición. Los cambios se guardan automáticamente.'
+      : 'El reordenamiento se activa cuando no hay búsqueda ni filtros aplicados.';
+  }
+} 
 
-function limpiarEstadoArrastre(){
-  listaAdmin.querySelectorAll('.arrastrando, .objetivo-arrastre').forEach(el => {
-    el.classList.remove('arrastrando', 'objetivo-arrastre');
+/* Permite reordenar servicios arrastrándolos directamente en la lista.
+   El nuevo orden se guarda en localStorage para que también lo use la tienda. */
+function prepararArrastreProductos(){
+  const items = [...listaAdmin.querySelectorAll('.item-admin-pro[data-product-id]')];
+  let idArrastrado = '';
+  let pointerActivo = false;
+  let pointerId = null;
+  let itemOrigen = null;
+  let ultimoObjetivo = null;
+
+  function limpiarClases(){
+    items.forEach(x => x.classList.remove('objetivo-arrastre', 'arrastrando'));
+  }
+
+  function objetivoDesdePunto(x, y){
+    const elemento = document.elementFromPoint(x, y);
+    const item = elemento?.closest?.('.item-admin-pro[data-product-id]');
+    if(!item || item === itemOrigen) return null;
+    if(!listaAdmin.contains(item)) return null;
+    return item;
+  }
+
+  function pintarObjetivo(item){
+    if(ultimoObjetivo === item) return;
+    items.forEach(x => x.classList.remove('objetivo-arrastre'));
+    ultimoObjetivo = item || null;
+    if(item) item.classList.add('objetivo-arrastre');
+  }
+
+  async function terminarPointer(clientX, clientY, cancelar = false){
+    if(!pointerActivo) return;
+    pointerActivo = false;
+
+    const origenId = idArrastrado;
+    const destinoItem = cancelar ? null : objetivoDesdePunto(clientX, clientY);
+    const destinoId = destinoItem?.dataset.productId || '';
+
+    if(itemOrigen && pointerId !== null){
+      try { itemOrigen.releasePointerCapture(pointerId); } catch(e) {}
+    }
+
+    limpiarClases();
+    idArrastrado = '';
+    pointerId = null;
+    itemOrigen = null;
+    ultimoObjetivo = null;
+
+    if(!origenId || !destinoId || origenId === destinoId) return;
+
+    const cat = obtenerCatalogo();
+    const origen = cat.findIndex(x => x.id === origenId);
+    const destino = cat.findIndex(x => x.id === destinoId);
+    if(origen < 0 || destino < 0 || origen === destino) return;
+
+    const [movido] = cat.splice(origen, 1);
+    // Después de quitar el origen, el índice del destino puede cambiar.
+    const destinoActual = cat.findIndex(x => x.id === destinoId);
+    cat.splice(Math.max(0, destinoActual), 0, movido);
+    await aplicarCambios(cat);
+  }
+
+  items.forEach(item => {
+    item.addEventListener('dragstart', e => {
+      idArrastrado = item.dataset.productId;
+      itemOrigen = item;
+      item.classList.add('arrastrando');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', idArrastrado);
+    });
+
+    item.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if(item.dataset.productId === idArrastrado) return;
+      pintarObjetivo(item);
+    });
+
+    item.addEventListener('drop', async e => {
+      e.preventDefault();
+      const idOrigen = e.dataTransfer.getData('text/plain') || idArrastrado;
+      const idDestino = item.dataset.productId;
+      limpiarClases();
+
+      if(!idOrigen || idOrigen === idDestino) return;
+
+      const cat = obtenerCatalogo();
+      const origen = cat.findIndex(x => x.id === idOrigen);
+      const destino = cat.findIndex(x => x.id === idDestino);
+      if(origen < 0 || destino < 0 || origen === destino) return;
+
+      const [movido] = cat.splice(origen, 1);
+      const destinoActual = cat.findIndex(x => x.id === idDestino);
+      cat.splice(Math.max(0, destinoActual), 0, movido);
+      await aplicarCambios(cat);
+    });
+
+    item.addEventListener('dragend', () => {
+      idArrastrado = '';
+      itemOrigen = null;
+      limpiarClases();
+    });
+
+    const asa = item.querySelector('.asa-arrastre');
+    if(asa && !asa.disabled){
+      asa.addEventListener('pointerdown', e => {
+        if(e.button !== 0 || pointerActivo) return;
+        e.preventDefault();
+        pointerActivo = true;
+        pointerId = e.pointerId;
+        idArrastrado = item.dataset.productId;
+        itemOrigen = item;
+        ultimoObjetivo = null;
+        item.classList.add('arrastrando');
+        asa.setPointerCapture?.(e.pointerId);
+      });
+
+      asa.addEventListener('pointermove', e => {
+        if(!pointerActivo || e.pointerId !== pointerId) return;
+        e.preventDefault();
+        pintarObjetivo(objetivoDesdePunto(e.clientX, e.clientY));
+      });
+
+      asa.addEventListener('pointerup', e => {
+        if(!pointerActivo || e.pointerId !== pointerId) return;
+        e.preventDefault();
+        terminarPointer(e.clientX, e.clientY);
+      });
+
+      asa.addEventListener('pointercancel', e => {
+        if(!pointerActivo || e.pointerId !== pointerId) return;
+        e.preventDefault();
+        terminarPointer(e.clientX, e.clientY, true);
+      });
+
+      asa.addEventListener('lostpointercapture', () => {
+        if(pointerActivo) terminarPointer(window.innerWidth / 2, window.innerHeight / 2, true);
+      });
+    }
+
+    item.querySelectorAll('button').forEach(boton => {
+      boton.addEventListener('dragstart', e => e.stopPropagation());
+    });
   });
 }
 
-listaAdmin.addEventListener('dragstart', e => {
-  const item = e.target.closest('.item-admin');
-  if(!item || e.target.closest('button')) {
-    e.preventDefault();
-    return;
-  }
-
-  itemArrastrado = item;
-  ordenGuardadoAntesDeArrastrar = obtenerCatalogo().map(s => s.id);
-  item.classList.add('arrastrando');
-
-  if(e.dataTransfer){
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', item.dataset.id);
-  }
-});
-
-listaAdmin.addEventListener('dragover', e => {
-  if(!itemArrastrado) return;
-  e.preventDefault();
-
-  const objetivo = e.target.closest('.item-admin');
-  if(!objetivo || objetivo === itemArrastrado) return;
-
-  listaAdmin.querySelectorAll('.objetivo-arrastre').forEach(el => {
-    el.classList.remove('objetivo-arrastre');
-  });
-  objetivo.classList.add('objetivo-arrastre');
-
-  if(e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-});
-
-listaAdmin.addEventListener('dragleave', e => {
-  const objetivo = e.target.closest('.item-admin');
-  if(objetivo && !objetivo.contains(e.relatedTarget)){
-    objetivo.classList.remove('objetivo-arrastre');
-  }
-});
-
-listaAdmin.addEventListener('drop', async e => {
-  if(!itemArrastrado) return;
-  e.preventDefault();
-
-  const objetivo = e.target.closest('.item-admin');
-  if(!objetivo || objetivo === itemArrastrado){
-    limpiarEstadoArrastre();
-    return;
-  }
-
-  const lista = [...listaAdmin.querySelectorAll('.item-admin')];
-  const desde = lista.indexOf(itemArrastrado);
-  let hasta = lista.indexOf(objetivo);
-
-  if(desde < 0 || hasta < 0){
-    limpiarEstadoArrastre();
-    return;
-  }
-
-  const rect = objetivo.getBoundingClientRect();
-  const insertarDespues = e.clientY > rect.top + rect.height / 2;
-
-  if(insertarDespues) hasta += 1;
-  if(desde < hasta) hasta -= 1;
-
-  if(desde === hasta){
-    limpiarEstadoArrastre();
-    return;
-  }
-
-  const cat = obtenerCatalogo();
-  const porId = new Map(cat.map(s => [s.id, s]));
-  const nuevoOrden = lista.map(el => el.dataset.id);
-  const [idMovido] = nuevoOrden.splice(desde, 1);
-  nuevoOrden.splice(hasta, 0, idMovido);
-
-  const nuevoCatalogo = nuevoOrden.map(id => porId.get(id)).filter(Boolean);
-  const ok = await aplicarCambios(nuevoCatalogo);
-
-  if(ok) {
-    itemArrastrado = null;
-    ordenGuardadoAntesDeArrastrar = null;
-  } else if(ordenGuardadoAntesDeArrastrar) {
-    dibujarListaAdmin();
-  }
-
-  limpiarEstadoArrastre();
-});
-
-listaAdmin.addEventListener('dragend', () => {
-  limpiarEstadoArrastre();
-  itemArrastrado = null;
-  ordenGuardadoAntesDeArrastrar = null;
-});
-
-function crearBoton(texto, alPulsar){
+function crearBoton(texto, alPulsar, clase = ''){
   const b = document.createElement('button');
   b.type = 'button';
   b.textContent = texto;
+  if(clase) b.classList.add(clase);
   b.addEventListener('click', alPulsar);
   return b;
 }
 
-/* Sube o baja un servicio en el orden del catálogo. */
+/* Sube o baja un producto en el orden del catálogo. */
 async function mover(id, direccion){
   const cat = obtenerCatalogo();
-  const i = cat.findIndex(s => s.id === id);
+  const i = cat.findIndex(p => p.id === id);
   const destino = i + direccion;
   if(i < 0 || destino < 0 || destino >= cat.length) return;
   [cat[i], cat[destino]] = [cat[destino], cat[i]];
   await aplicarCambios(cat);
+}
+
+/* ============================================================
+   6. PUBLICAR INDEX.HTML
+   ------------------------------------------------------------
+   localStorage solo existe en el navegador actual. Por eso este
+   botón genera un nuevo index.html que, al abrirse, reconstruye
+   automáticamente los datos guardados por el administrador.
+   ============================================================ */
+
+function leerEstadoParaPublicar(){
+  let catalogo = [];
+  let categorias = [];
+  let categoriasOcultas = [];
+  let fondo = '';
+
+  try {
+    catalogo = JSON.parse(localStorage.getItem(CLAVE) || '[]') || [];
+  } catch(e) {
+    catalogo = obtenerCatalogo();
+  }
+
+  try {
+    categorias = JSON.parse(localStorage.getItem(CLAVE_CATEGORIAS) || '[]') || [];
+  } catch(e) {
+    categorias = [];
+  }
+
+  try {
+    categoriasOcultas = JSON.parse(localStorage.getItem(CLAVE_CAT_OCULTAS) || '[]') || [];
+  } catch(e) {
+    categoriasOcultas = [];
+  }
+
+  try {
+    fondo = localStorage.getItem(CLAVE_FONDO) || '';
+  } catch(e) {
+    fondo = '';
+  }
+
+  // Si nunca hubo un guardado del catálogo, usa el estado visible actual.
+  if(!catalogo.length) catalogo = catalogoDesdeHTML();
+
+  return { catalogo, categorias, categoriasOcultas, fondo };
+}
+
+function construirIndexPublicado(){
+  const estado = leerEstadoParaPublicar();
+
+  // JSON seguro para incrustar dentro de un <script>.
+  // También evita que una cadena de datos pueda cerrar accidentalmente el script.
+  const datos = JSON.stringify(estado)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
+  const bootstrap = `
+<!-- ============================================================
+     ESTADO PUBLICADO POR EL ANTONIO'S SOLUTIONS — PANEL DE ADMINISTRADOR
+     ============================================================ -->
+<script>
+(function(){
+  try {
+    const estadoPublicado = ${datos};
+    if (Array.isArray(estadoPublicado.catalogo)) {
+      localStorage.setItem('solutions_catalogo_v1', JSON.stringify(estadoPublicado.catalogo));
+    }
+    if (Array.isArray(estadoPublicado.categorias)) {
+      localStorage.setItem('solutions_categorias_v1', JSON.stringify(estadoPublicado.categorias));
+    }
+    if (Array.isArray(estadoPublicado.categoriasOcultas)) {
+      localStorage.setItem('solutions_categorias_ocultas_v1', JSON.stringify(estadoPublicado.categoriasOcultas));
+    }
+    if (estadoPublicado.fondo) {
+      localStorage.setItem('solutions_fondo_v1', estadoPublicado.fondo);
+    } else {
+      localStorage.removeItem('solutions_fondo_v1');
+    }
+  } catch(e) {
+    console.warn('No se pudo cargar el estado publicado:', e);
+  }
+})();
+</script>
+`;
+
+  const marcador = '<script src="script.js"></script>';
+  if(!indexOriginalParaPublicar.includes(marcador)){
+    throw new Error('No se encontró script.js en el index original.');
+  }
+
+  return indexOriginalParaPublicar.replace(
+    marcador,
+    bootstrap + '\n' + marcador
+  );
+}
+
+async function publicarIndex(){
+  if(!btnGuardarIndex) return;
+
+  btnGuardarIndex.disabled = true;
+  if(estadoGuardarIndex){
+    estadoGuardarIndex.hidden = false;
+    estadoGuardarIndex.textContent = 'Preparando index.html...';
+  }
+
+  try {
+    const contenido = construirIndexPublicado();
+    const blob = new Blob([contenido], {type: 'text/html;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement('a');
+
+    enlace.href = url;
+    enlace.download = 'index.html';
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    // El guardado/publicación termina la sesión administrativa.
+    sesionAbierta = false;
+    cerrarModal(modalAdmin);
+    cerrarModal(modalPass);
+    limpiarFormulario();
+
+    alert(
+      'Index guardado correctamente.\\n\\n' +
+      'Se descargó "index.html". Reemplaza el index.html de tu sitio ' +
+      'por este archivo para que los cambios estén disponibles para todos.'
+    );
+  } catch(e) {
+    console.error(e);
+    if(estadoGuardarIndex){
+      estadoGuardarIndex.hidden = false;
+      estadoGuardarIndex.textContent = 'No se pudo generar el index.html.';
+    }
+    alert('No se pudo generar el index.html. Revisa la consola del navegador para más detalles.');
+  } finally {
+    btnGuardarIndex.disabled = false;
+    if(estadoGuardarIndex && !modalAdmin.classList.contains('visible')){
+      estadoGuardarIndex.hidden = true;
+    }
+  }
 }
 
 /* ============================================================
@@ -776,22 +973,156 @@ function abrirPanel(){
   abrirModal(modalAdmin);
 }
 
-btnCerrar.addEventListener('click', cerrarSesionAdmin);
+/* Cierra el administrador y termina la sesión para que siempre
+   vuelva a pedir la contraseña al entrar otra vez. */
+function salirDelAdministrador(){
+  sesionAbierta = false;
+  cerrarModal(modalAdmin);
+  limpiarFormulario();
+}
 
-modalPass.addEventListener('click', e => {
-  if(e.target === modalPass) {
-    sesionAbierta = false;
-    cerrarModal(modalPass);
-  }
-});
+/* Botón X: salir del administrador y volver a exigir contraseña. */
+btnCerrar.addEventListener('click', salirDelAdministrador);
 
+/* Clic fuera del recuadro de administrador:
+   cierra el panel y termina la sesión. */
 modalAdmin.addEventListener('click', e => {
-  if(e.target === modalAdmin) cerrarSesionAdmin();
+  if(e.target === modalAdmin) salirDelAdministrador();
 });
 
+/* En la ventana de contraseña, hacer clic fuera simplemente la cierra. */
+modalPass.addEventListener('click', e => {
+  if(e.target === modalPass) cerrarModal(modalPass);
+});
+
+/* Escape también cierra el administrador y termina la sesión. */
 document.addEventListener('keydown', e => {
   if(e.key !== 'Escape') return;
-  cerrarSesionAdmin();
+  cerrarModal(modalPass);
+  if(modalAdmin.classList.contains('visible')) salirDelAdministrador();
 });
+
+
+/* ============================================================
+   7. MEJORAS DEL DASHBOARD DE ADMINISTRACIÓN
+   ------------------------------------------------------------
+   - Resumen en tiempo real.
+   - Búsqueda y filtros.
+   - Accesos rápidos por sección.
+   - Nuevo producto con foco automático.
+   ============================================================ */
+const campoBusquedaAdmin = $('campoBusquedaAdmin');
+const filtroCategoriaAdmin = $('filtroCategoriaAdmin');
+const filtroEstadoAdmin  = $('filtroEstadoAdmin');
+const adminListaHint     = $('adminListaHint');
+const adminTotalServicios = $('adminTotalServicios');
+const adminDisponibles    = $('adminDisponibles');
+const adminAgotados       = $('adminAgotados');
+const adminTotalCategorias = $('adminTotalCategorias');
+const btnNuevoServicio    = $('btnNuevoServicio');
+const btnActualizarAdmin  = $('btnActualizarAdmin');
+
+function normalizarAdmin(valor){
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function textoCategoriaAdmin(valor){
+  const botones = [...document.querySelectorAll('#panelCategorias button[data-filtro]')];
+  const boton = botones.find(btn => btn.dataset.filtro === valor);
+  if(boton) return boton.textContent.trim();
+
+  const guardadas = leerCategoriasGuardadas();
+  const guardada = guardadas.find(c => c.valor === valor);
+  return guardada?.texto || valor;
+}
+
+function actualizarOpcionesFiltroCategoriaAdmin(catalogo = obtenerCatalogo()){
+  if(!filtroCategoriaAdmin) return;
+
+  const valorActual = filtroCategoriaAdmin.value || 'todas';
+  const mapa = new Map();
+
+  // Prioriza las categorías visibles de la tienda.
+  categoriasDisponibles().forEach(cat => mapa.set(cat.valor, cat.texto));
+
+  // Incluye también cualquier categoría que ya esté asignada a un producto.
+  catalogo.forEach(p => {
+    (p.categorias || []).forEach(valor => {
+      if(!mapa.has(valor)) mapa.set(valor, textoCategoriaAdmin(valor));
+    });
+  });
+
+  const fragmento = document.createDocumentFragment();
+  const todas = document.createElement('option');
+  todas.value = 'todas';
+  todas.textContent = 'Todas las categorías';
+  fragmento.appendChild(todas);
+
+  [...mapa.entries()]
+    .sort((a,b) => a[1].localeCompare(b[1], 'es', {sensitivity:'base'}))
+    .forEach(([valor, texto]) => {
+      const option = document.createElement('option');
+      option.value = valor;
+      option.textContent = texto;
+      fragmento.appendChild(option);
+    });
+
+  const tieneSinCategoria = catalogo.some(p => !(p.categorias || []).length);
+  if(tieneSinCategoria){
+    const option = document.createElement('option');
+    option.value = 'sin-categoria';
+    option.textContent = 'Sin categoría';
+    fragmento.appendChild(option);
+  }
+
+  filtroCategoriaAdmin.replaceChildren(fragmento);
+  filtroCategoriaAdmin.value = [...filtroCategoriaAdmin.options].some(o => o.value === valorActual)
+    ? valorActual
+    : 'todas';
+}
+
+function actualizarResumenAdmin(catalogo = obtenerCatalogo()){
+  const total = catalogo.length;
+  const disponibles = catalogo.filter(p => p.imagen && !p.agotado).length;
+  const agotados = catalogo.filter(p => p.agotado || !p.imagen).length;
+  const categorias = new Set(catalogo.flatMap(p => p.categorias || [])).size;
+
+  if(adminTotalServicios) adminTotalServicios.textContent = total;
+  if(adminDisponibles) adminDisponibles.textContent = disponibles;
+  if(adminAgotados) adminAgotados.textContent = agotados;
+  if(adminTotalCategorias) adminTotalCategorias.textContent = categorias;
+}
+
+function irASeccionAdmin(id){
+  const el = $(id);
+  if(!el) return;
+  el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+campoBusquedaAdmin?.addEventListener('input', dibujarListaAdmin);
+filtroCategoriaAdmin?.addEventListener('change', dibujarListaAdmin);
+filtroEstadoAdmin?.addEventListener('change', dibujarListaAdmin);
+btnActualizarAdmin?.addEventListener('click', () => {
+  if(campoBusquedaAdmin) campoBusquedaAdmin.value = '';
+  if(filtroCategoriaAdmin) filtroCategoriaAdmin.value = 'todas';
+  if(filtroEstadoAdmin) filtroEstadoAdmin.value = 'todos';
+  dibujarListaAdmin();
+});
+
+document.querySelectorAll('[data-admin-scroll]').forEach(btn => {
+  btn.addEventListener('click', () => irASeccionAdmin(btn.dataset.adminScroll));
+});
+
+btnNuevoServicio?.addEventListener('click', () => {
+  limpiarFormulario();
+  irASeccionAdmin('adminSeccionFormulario');
+  setTimeout(() => campoNombre?.focus(), 260);
+});
+
+actualizarResumenAdmin();
 
 })();
