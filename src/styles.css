@@ -712,7 +712,40 @@ a{text-decoration:none;color:inherit}
 .admin-publish-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:10px;background:rgba(37,244,238,.09);color:var(--cyan);font-weight:900;font-size:1rem}
 .admin-publish-card strong{display:block;font-size:.74rem}
 .admin-publish-card p{margin:4px 0 0;color:rgba(255,255,255,.5);font-size:.64rem;line-height:1.45}
-.admin-publish-card .btn-publicar{grid-column:1/-1;margin-top:5px}
+.admin-publish-card .btn-publicar{
+  grid-column:1/-1;
+  margin-top:5px;
+  width:100%;
+  min-height:40px;
+  padding:10px 14px;
+  border:1px solid rgba(92,121,224,.85);
+  border-radius:9px;
+  background:linear-gradient(135deg,#6b8bff,#5c79e0);
+  color:#06133c;
+  font:800 .78rem/1.2 var(--tipo-texto);
+  letter-spacing:.01em;
+  text-align:center;
+  cursor:pointer;
+  appearance:none;
+  -webkit-appearance:none;
+  box-shadow:0 6px 18px rgba(39,63,150,.26),inset 0 1px 0 rgba(255,255,255,.18);
+  transition:transform .16s ease,box-shadow .16s ease,filter .16s ease;
+}
+.admin-publish-card .btn-publicar:hover:not(:disabled){
+  transform:translateY(-1px);
+  filter:brightness(1.06);
+  box-shadow:0 9px 22px rgba(39,63,150,.34),0 0 16px rgba(107,139,255,.25);
+}
+.admin-publish-card .btn-publicar:focus-visible{
+  outline:2px solid rgba(37,244,238,.85);
+  outline-offset:2px;
+}
+.admin-publish-card .btn-publicar:disabled{
+  opacity:.55;
+  cursor:wait;
+  transform:none;
+  box-shadow:none;
+}
 .estado-publicar{font-size:.67rem!important}
 .admin-modal-caja code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#bfeeed}
 @media (max-width:900px){
